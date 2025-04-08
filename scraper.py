@@ -199,6 +199,14 @@ def extract_data(html_content, url_info):
     url_type = url_info.get("type")
     page_url = url_info.get("url")
 
+    base_domain = urlparse(page_url).netloc
+    links = soup.find_all('a', href=True)
+    internal_links = {urljoin(page_url, a['href']) for a in links if urlparse(urljoin(page_url, a['href'])).netloc == base_domain}
+    external_links = {urljoin(page_url, a['href']) for a in links if urlparse(urljoin(pa*, a['href'])).netloc != base_domain}
+    all_texts = [p.text.strip() for p in soup.find_all(["p", "li"]) if p.text.strip()]
+    concatenated = " ".join(all_texts)
+
+
     # 📦 Données communes
     data = {
         "url": page_url,
@@ -208,8 +216,9 @@ def extract_data(html_content, url_info):
         "lang": soup.html.get("lang") if soup.html else None,
         "h1": soup.find("h1").text.strip() if soup.find("h1") else None,
         "h2_tags": [h2.text.strip() for h2 in soup.find_all("h2")],
-        "text_blocks": " ".join([p.text for p in soup.find_all(["p", "li"])]),
-        "links": [a.get("href") for a in soup.find_all("a", href=True)],
+        "text_blocks": " ".join(concatenated.split()[:500]),  # Limiting to first 500 words
+        "internal links": len(internal_links),
+        "external links": len(external_links),
         "cta_texts": [],
         "images": [{"src": img.get("src"), "alt": img.get("alt")} for img in soup.find_all("img")],
         "social_links": []
