@@ -198,78 +198,102 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
 import re
 
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, urljoin
+import re
+
 def extract_data(html_content, url_info):
     soup = BeautifulSoup(html_content, "lxml")
-    url_type = url_info.get("type")
+    url_type = url_info.get("type", "").lower()
     page_url = url_info.get("url")
 
+    # === 🔹 Meta Basics ===
+    title = soup.title.string.strip() if soup.title and soup.title.string else ""
+    description_tag = soup.find("meta", attrs={"name": "description"})
+    keywords_tag = soup.find("meta", attrs={"name": "keywords"})
+    description = description_tag.get("content", "").strip() if description_tag else ""
+    keywords = keywords_tag.get("content", "").strip() if keywords_tag else ""
+    html_lang = soup.html.get("lang", "").strip() if soup.html and soup.html.has_attr("lang") else ""
+
+    # === 🔹 Headings & Content ===
+    headings = {
+        "h1": [h.get_text(strip=True) for h in soup.find_all("h1")],
+        "h2": [h.get_text(strip=True) for h in soup.find_all("h2")],
+        "h3": [h.get_text(strip=True) for h in soup.find_all("h3")]
+    }
+    text_elements = soup.find_all(["p", "li"])
+    text_blocks = [t.get_text(strip=True) for t in text_elements if t.get_text(strip=True)]
+    word_count = len(" ".join(text_blocks).split())
+
+    # === 🔹 Links
     base_domain = urlparse(page_url).netloc
-    links = soup.find_all('a', href=True)
-    internal_links = {urljoin(page_url, a['href']) for a in links if urlparse(urljoin(page_url, a['href'])).netloc == base_domain}
-    external_links = {urljoin(page_url, a['href']) for a in links if urlparse(urljoin(page_url, a['href'])).netloc != base_domain}
+    all_links = [urljoin(page_url, a["href"]) for a in soup.find_all("a", href=True)]
+    internal_links = {link for link in all_links if urlparse(link).netloc == base_domain}
+    external_links = {link for link in all_links if urlparse(link).netloc != base_domain}
 
-    # Extract clean text blocks
-    all_texts = [p.text.strip() for p in soup.find_all(["p", "li"]) if p.text.strip()]
-    text_blocks = all_texts[:15]  # first 15 paragraphs for analysis
+    # === 🔹 Media / Visuals
+    images = [{"src": img.get("src"), "alt": img.get("alt", "").strip()} for img in soup.find_all("img")]
 
+    # === 🔹 CTA Detection
+    cta_texts = []
+    for tag in soup.find_all(["a", "button"]):
+        text = tag.get_text(strip=True).lower()
+        if text:
+            cta_texts.append({
+                "text": text,
+                "href": tag.get("href")
+            })
+
+    # === 🔹 Social Links
+    social_platforms = ["facebook", "linkedin", "instagram", "youtube", "tiktok", "x.com", "twitter"]
+    social_links = [
+        a.get("href") for a in soup.find_all("a", href=True)
+        if any(platform in a.get("href", "") for platform in social_platforms)
+    ]
+
+    # === 🔹 Tracking Scripts Detection
+    scripts = soup.find_all("script", src=True)
+    tracking_patterns = ["analytics", "gtag", "gtm.js", "matomo", "facebook.net", "hotjar"]
+    has_tracking_scripts = any(
+        any(tp in script["src"] for tp in tracking_patterns)
+        for script in scripts
+    )
+
+    # === 🧩 Contact Page Specifics
+    contact_info = {}
+    if url_type == "contact":
+        contact_info.update({
+            "has_form": bool(soup.find("form")),
+            "has_email": bool(re.search(r"\b[\w\.-]+@[\w\.-]+\.\w+\b", html_content)),
+            "has_phone": bool(re.search(r"\+?\d[\d\-\s\(\)]{6,}", html_content)),
+            "has_map": bool(soup.find("iframe", src=re.compile("google.com/maps"))),
+            "has_rgpd": bool(re.search(r"(rgpd|politique de confidentialité|données personnelles)", html_content, re.I))
+        })
+
+    # === ✅ Final structured output
     data = {
         "url": page_url,
         "type": url_type,
-        "title": soup.title.string.strip() if soup.title else None,
-        "meta_description": (soup.find("meta", attrs={"name": "description"}) or {}).get("content", None),
-        "lang": soup.html.get("lang") if soup and soup.html else None,
-        "h1": soup.find("h1").text.strip() if soup.find("h1") else None,
-        "h2_tags": [h2.text.strip() for h2 in soup.find_all("h2")],
-        "text_blocks": text_blocks,
+        "title": title,
+        "meta_description": description,
+        "meta_keywords": keywords,
+        "lang": html_lang,
+        "headings": headings,
+        "text_blocks": text_blocks[:15],
+        "word_count": word_count,
         "internal_links": len(internal_links),
         "external_links": len(external_links),
-        "cta_texts": [],
-        "images": [{"src": img.get("src"), "alt": img.get("alt")} for img in soup.find_all("img")],
-        "social_links": [],
+        "cta_texts": cta_texts,
+        "images": images,
+        "social_links": social_links,
+        "has_tracking_scripts": has_tracking_scripts,
     }
 
-    # Detect CTA
-    for tag in soup.find_all(["a", "button"]):
-        text = (tag.text or "").lower().strip()
-        if text :
-            data["cta_texts"].append({"text": text, "href": tag.get("href")})
-
-    # Detect social links
-    social_platforms = ["facebook", "linkedin", "instagram", "youtube", "tiktok", "x.com", "twitter"]
-    for a in soup.find_all("a", href=True):
-        href = a.get("href")
-        if any(platform in href for platform in social_platforms):
-            data["social_links"].append(href)
-
-    # Type-specific features
-    if url_type == "home":
-        data["has_hero_banner"] = bool(soup.find("section", class_=re.compile("hero|banner|intro", re.I)))
-        data["has_services_preview"] = bool(soup.find("a", href=re.compile("services|produits", re.I)))
-
-    elif url_type == "service":
-        text_combined = " ".join(text_blocks).lower()
-        data["service_keywords_present"] = any(
-            keyword in text_combined for keyword in ["assurance", "épargne", "protection", "santé"]
-        )
-        data["has_simulator"] = any(
-            "simulateur" in (btn.text.lower() or "") for btn in soup.find_all(["a", "button"])
-        )
-
-    elif url_type == "blog":
-        text_combined = " ".join(text_blocks).lower()
-        data["article_structure"] = {
-            "has_date": bool(re.search(r"\d{4}-\d{2}-\d{2}", html_content)),
-            "has_author": "auteur" in text_combined,
-            "has_keywords": len(data["h2_tags"]) > 0
-        }
-
-    elif url_type == "contact":
-        data["has_form"] = bool(soup.find("form"))
-        data["has_email"] = bool(re.search(r"\b[\w\.-]+@[\w\.-]+\.\w+\b", html_content))
-        data["has_map"] = bool(soup.find("iframe", src=re.compile("google.com/maps")))
+    # Merge contact-specific info
+    if contact_info:
+        data.update(contact_info)
 
     return data
-
 
 def evaluate(data):
 
