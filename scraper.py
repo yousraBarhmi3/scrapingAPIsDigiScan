@@ -194,6 +194,10 @@ def extract_links(links: List[str], selected_model: str) -> List[Dict[str, str]]
         raise ValueError(f"Unsupported model: {selected_model}")
 
    
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, urljoin
+import re
+
 def extract_data(html_content, url_info):
     soup = BeautifulSoup(html_content, "lxml")
     url_type = url_info.get("type")
@@ -202,60 +206,60 @@ def extract_data(html_content, url_info):
     base_domain = urlparse(page_url).netloc
     links = soup.find_all('a', href=True)
     internal_links = {urljoin(page_url, a['href']) for a in links if urlparse(urljoin(page_url, a['href'])).netloc == base_domain}
-    external_links = {urljoin(page_url, a['href']) for a in links if urlparse(urljoin(pa*, a['href'])).netloc != base_domain}
+    external_links = {urljoin(page_url, a['href']) for a in links if urlparse(urljoin(page_url, a['href'])).netloc != base_domain}
+
+    # Extract clean text blocks
     all_texts = [p.text.strip() for p in soup.find_all(["p", "li"]) if p.text.strip()]
-    concatenated = " ".join(all_texts)
+    text_blocks = all_texts[:15]  # first 15 paragraphs for analysis
 
-
-    # 📦 Données communes
     data = {
         "url": page_url,
         "type": url_type,
         "title": soup.title.string.strip() if soup.title else None,
         "meta_description": (soup.find("meta", attrs={"name": "description"}) or {}).get("content", None),
-        "lang": soup.html.get("lang") if soup.html else None,
+        "lang": soup.html.get("lang") if soup and soup.html else None,
         "h1": soup.find("h1").text.strip() if soup.find("h1") else None,
         "h2_tags": [h2.text.strip() for h2 in soup.find_all("h2")],
-        "text_blocks": " ".join(concatenated.split()[:500]),  # Limiting to first 500 words
-        "internal links": len(internal_links),
-        "external links": len(external_links),
+        "text_blocks": text_blocks,
+        "internal_links": len(internal_links),
+        "external_links": len(external_links),
         "cta_texts": [],
         "images": [{"src": img.get("src"), "alt": img.get("alt")} for img in soup.find_all("img")],
-        "social_links": []
+        "social_links": [],
     }
 
-    # 🧠 Détection CTA via texte brut dans les boutons et liens
-    potential_cta_tags = soup.find_all(["a", "button"])
-    cta_keywords = ["contact", "devis", "souscrire", "en savoir plus", "commencer", "simuler", "rejoindre"]
-    for tag in potential_cta_tags:
+    # Detect CTA
+    for tag in soup.find_all(["a", "button"]):
         text = (tag.text or "").lower().strip()
-        if any(k in text for k in cta_keywords):
+        if text :
             data["cta_texts"].append({"text": text, "href": tag.get("href")})
 
-    # 🔗 Détection réseaux sociaux
+    # Detect social links
     social_platforms = ["facebook", "linkedin", "instagram", "youtube", "tiktok", "x.com", "twitter"]
     for a in soup.find_all("a", href=True):
         href = a.get("href")
         if any(platform in href for platform in social_platforms):
             data["social_links"].append(href)
 
-    # 🔄 Type-specific enrichments
+    # Type-specific features
     if url_type == "home":
         data["has_hero_banner"] = bool(soup.find("section", class_=re.compile("hero|banner|intro", re.I)))
         data["has_services_preview"] = bool(soup.find("a", href=re.compile("services|produits", re.I)))
 
     elif url_type == "service":
+        text_combined = " ".join(text_blocks).lower()
         data["service_keywords_present"] = any(
-            keyword in data["text_blocks"].lower() for keyword in ["assurance", "épargne", "protection", "santé"]
+            keyword in text_combined for keyword in ["assurance", "épargne", "protection", "santé"]
         )
         data["has_simulator"] = any(
             "simulateur" in (btn.text.lower() or "") for btn in soup.find_all(["a", "button"])
         )
 
     elif url_type == "blog":
+        text_combined = " ".join(text_blocks).lower()
         data["article_structure"] = {
             "has_date": bool(re.search(r"\d{4}-\d{2}-\d{2}", html_content)),
-            "has_author": "auteur" in data["text_blocks"].lower(),
+            "has_author": "auteur" in text_combined,
             "has_keywords": len(data["h2_tags"]) > 0
         }
 
