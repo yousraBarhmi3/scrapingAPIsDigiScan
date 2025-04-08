@@ -129,7 +129,7 @@ LINKS_MESSAGE = """Tu es un expert en audit stratégique de sites web, spéciali
 
                     Priorise les pages ayant un impact direct sur la stratégie SEO et marketing, notamment les pages de services clés.
                     Ignore les liens non stratégiques (navigation, mentions légales, CGU, etc.).
-                    Retourne le type 'home ou service ou blog ou contact' et la liste des 6 liens les plus pertinents, sans explication et sans ordre particulier.
+                    Retourne le type 'service ou blog ou contact' et la liste des 6 liens les plus pertinents, sans explication et sans ordre particulier.
 
                 """ 
 

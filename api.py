@@ -110,13 +110,16 @@ def scrape_data(request: ScrapeRequest):
     try:
         url = request.url
         raw_html = fetch_html_selenium(url)
-        data = extract_data(raw_html, url)
+
+        data = extract_data(raw_html, {"type": "home", "url": url})
+
         return {
             "data": data
         }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @app.post("/scrapeMultiple/")
@@ -131,7 +134,7 @@ def scrape_all_data(request: ScrapeRequest):
 
         url = request.url
         raw_html = fetch_html_selenium(url)
-        base_data = extract_data(raw_html, url)
+        base_data = extract_data(raw_html, {"type": "home", "url": url})
         results.append({"url": url, "data": base_data})
 
         internal_links = extract_internal_links_from_html(raw_html, url)
