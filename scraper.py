@@ -58,9 +58,8 @@ def setup_selenium(attended_mode=False):
 
     options.add_argument(f"user-agent={random.choice(USER_AGENTS)}")
     options.binary_location = "/opt/chrome/chrome"
-    service = Service(ChromeDriverManager().install())
 
-    # service = Service(executable_path="/usr/local/bin/chromedriver")
+    service = Service(executable_path="/usr/local/bin/chromedriver")
 
     driver = webdriver.Chrome(service=service, options=options)
     return driver
