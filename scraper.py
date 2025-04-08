@@ -169,52 +169,118 @@ def extract_links(links: List[str], selected_model: str) -> List[str]:
     else:
         raise ValueError(f"Unsupported model: {selected_model}")
     
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+import re
+
 def extract_data(html_content, url):
     soup = BeautifulSoup(html_content, "lxml")
+    
+    # === A. Structure & SEO
+    title = soup.title.string.strip() if soup.title else ""
+    meta_description = soup.find("meta", attrs={"name": "description"})
+    description = meta_description.get("content") if meta_description else ""
 
-    # Basic metadata
-    title = soup.title.string if soup.title else None
-    description = (soup.find("meta", attrs={"name": "description"}) or {}).get("content")
+    robots = soup.find("meta", attrs={"name": "robots"})
+    meta_robots = robots.get("content") if robots else ""
 
-    # Navigation menu
-    nav = soup.find("nav")
-    menu_items = [{"text": a.get_text(strip=True), "href": a["href"]} for a in nav.find_all("a", href=True)] if nav else []
+    canonical = soup.find("link", rel="canonical")
+    canonical_url = canonical.get("href") if canonical else ""
 
-    # Headings (h1-h6)
-    headings = {f'h{i}': [h.get_text(strip=True) for h in soup.find_all(f'h{i}')] for i in range(1, 7)}
+    og_tags = {tag.get("property"): tag.get("content") for tag in soup.find_all("meta") if tag.get("property", "").startswith("og:")}
+    twitter_tags = {tag.get("name"): tag.get("content") for tag in soup.find_all("meta") if tag.get("name", "").startswith("twitter:")}
 
-    # Links
-    base_domain = urlparse(url).netloc
-    links = soup.find_all('a', href=True)
-    internal_links = {urljoin(url, a['href']) for a in links if urlparse(urljoin(url, a['href'])).netloc == base_domain}
-    external_links = {urljoin(url, a['href']) for a in links if urlparse(urljoin(url, a['href'])).netloc != base_domain}
+    html_lang = soup.html.get("lang") if soup.html and soup.html.has_attr("lang") else ""
 
-    # Images
-    images = [{"src": img.get("src"), "alt": img.get("alt")} for img in soup.find_all("img")]
+    charset = soup.find("meta", attrs={"charset": True})
+    viewport = soup.find("meta", attrs={"name": "viewport"})
+    meta_charset = charset.get("charset") if charset else ""
+    meta_viewport = viewport.get("content") if viewport else ""
 
-    # Structured data
-    structured_data = [json.loads(script.string) for script in soup.find_all("script", type="application/ld+json") if script.string]
+    headings = {
+        "h1": [h.get_text(strip=True) for h in soup.find_all("h1")],
+        "h2": [h.get_text(strip=True) for h in soup.find_all("h2")],
+        "h3": [h.get_text(strip=True) for h in soup.find_all("h3")]
+    }
 
-    # Word count
-    text = soup.get_text(separator=' ', strip=True)
-    word_count = len(text.split())
+    # === B. Contenu Principal & Pertinence
+    all_text_tags = soup.find_all(["p", "li", "span"])
+    full_text = " ".join([tag.get_text(strip=True) for tag in all_text_tags])
+    word_count = len(full_text.split())
 
-    # Other metadata
-    robots_content = (soup.find("meta", attrs={"name": "robots"}) or {}).get("content")
-    canonical_url = (soup.find("link", rel="canonical") or {}).get("href")
+    # === C. UX / Conversion / CTA
+    buttons = soup.find_all(["a", "button"])
+    ctas = []
+
+    for btn in buttons:
+        text = btn.get_text(strip=True)
+        href = btn.get("href")
+        ctas.append({
+            "text": text,
+            "href": urljoin(url, href) if href else None,
+        })
+
+    # === D. Accessibilité & Image
+    images = soup.find_all("img")
+    img_data = [{
+        "src": urljoin(url, img.get("src")),
+        "alt": img.get("alt", "")
+    } for img in images if img.get("src")]
+
+    text_vs_images = {
+        "total_text_length": len(full_text),
+        "total_images": len(images),
+        "ratio_text_per_image": len(full_text) / len(images) if images else "∞"
+    }
+
+    # === E. Liens internes & navigation
+    links = soup.find_all("a", href=True)
+    internal_links = [{
+        "href": urljoin(url, a["href"]),
+        "text": a.get_text(strip=True)
+    } for a in links if a["href"].startswith("/") or url in a["href"]]
+
+    key_pages = [l for l in internal_links if re.search(r"/(contact|devis|espace|produit|services|simulateur)", l["href"], re.IGNORECASE)]
+
+    # === F. Réseaux sociaux
+    social_platforms = ["facebook.com", "instagram.com", "linkedin.com", "tiktok.com", "youtube.com", "x.com", "twitter.com"]
+    social_links = [{
+        "href": a["href"],
+        "icon_alt": a.get("aria-label") or a.get("title") or a.get("alt", "")
+    } for a in links if any(social in a["href"] for social in social_platforms)]
 
     return {
-        "title": title,
-        "description": description,
-        "headings": headings,
-        "internal_links": list(internal_links),
-        "external_links": list(external_links),
-        "images": images,
-        "structured_data": structured_data,
-        "word_count": word_count,
-        "robots": robots_content,
-        "canonical_url": canonical_url,
-        "navigation": menu_items
+        "seo": {
+            "title": title,
+            "description": description,
+            "lang": html_lang,
+            "meta_charset": meta_charset,
+            "meta_viewport": meta_viewport,
+            "meta_robots": meta_robots,
+            "canonical": canonical_url,
+            "og_tags": og_tags,
+            "twitter_tags": twitter_tags,
+            "headings": headings
+        },
+        "content": {
+            "word_count": word_count,
+            "text_sample": full_text[:300] + "..." if len(full_text) > 300 else full_text
+        },
+        "cta_analysis": {
+            "cta_links": ctas
+        },
+        "images": {
+            "all_images": img_data,
+            "text_vs_images": text_vs_images
+        },
+        "navigation": {
+            "internal_links": internal_links,
+            "key_pages": key_pages
+        },
+        "social_presence": {
+            "detected_links": social_links,
+            "total_socials": len(social_links)
+        }
     }
 
 def evaluate(data):
