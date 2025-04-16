@@ -375,6 +375,7 @@ def extract_linkedIn_ad_detail(html_data: str) -> dict:
         "external_link": None,
         "ad_type": None,
         "duration": None,
+        "paying_entity": None, 
         "impressions": {},
         "targeting": {
             "language": [],
@@ -418,6 +419,11 @@ def extract_linkedIn_ad_detail(html_data: str) -> dict:
     duration_tag = soup.select_one("p.about-ad__availability-duration")
     if duration_tag:
         data["duration"] = duration_tag.get_text(strip=True)
+
+    # Paying Entity
+    paying_entity_tag = soup.select_one("p.about-ad__paying-entity")
+    if paying_entity_tag:
+        data["paying_entity"] = paying_entity_tag.get_text(strip=True)
 
     # Country-wise impressions
     impressions = soup.select("span.ad-analytics__country-impressions")
