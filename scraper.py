@@ -364,3 +364,86 @@ def extract_linkedIn_ads_data(html_data):
     
     return ads
    
+def extract_linkedIn_ad_detail(html_data: str) -> dict:
+    soup = BeautifulSoup(html_data, "html.parser")
+    
+    data = {
+        "advertiser": None,
+        "description": None,
+        "headline": None,
+        "image_url": None,
+        "external_link": None,
+        "ad_type": None,
+        "duration": None,
+        "impressions": {},
+        "targeting": {
+            "language": [],
+            "location_includes": [],
+            "location_excludes": [],
+            "audience": None
+        }
+    }
+
+    # Advertiser
+    adv_tag = soup.select_one("a[aria-label^='View organization page']")
+    if adv_tag:
+        data["advertiser"] = adv_tag.get_text(strip=True)
+
+    # Description
+    desc_tag = soup.select_one("p.commentary__content")
+    if desc_tag:
+        data["description"] = desc_tag.get_text(strip=True)
+
+    # Headline
+    headline_tag = soup.select_one("h2.text-sm.font-semibold")
+    if headline_tag:
+        data["headline"] = headline_tag.get_text(strip=True)
+
+    # Ad Image
+    image_tag = soup.select_one("img.ad-preview__dynamic-dimensions-image")
+    if image_tag and image_tag.has_attr("src"):
+        data["image_url"] = image_tag["src"]
+
+    # External Link
+    link_tag = soup.select_one("a[href^='http']")
+    if link_tag and link_tag.has_attr("href"):
+        data["external_link"] = link_tag["href"]
+
+    # Ad Type
+    ad_type_tag = soup.select_one("p.text-sm.mb-1")
+    if ad_type_tag:
+        data["ad_type"] = ad_type_tag.get_text(strip=True)
+
+    # Duration
+    duration_tag = soup.select_one("p.about-ad__availability-duration")
+    if duration_tag:
+        data["duration"] = duration_tag.get_text(strip=True)
+
+    # Country-wise impressions
+    impressions = soup.select("span.ad-analytics__country-impressions")
+    for imp in impressions:
+        country = imp.select_one("p.font-semibold")
+        percent = imp.select_one("p.text-right")
+        if country and percent:
+            data["impressions"][country.get_text(strip=True)] = percent.get_text(strip=True)
+
+    # Targeting - Language
+    lang_tag = soup.select_one("h3:contains('Language') + p span")
+    if lang_tag:
+        data["targeting"]["language"].append(lang_tag.get_text(strip=True))
+
+    # Targeting - Locations
+    location_block = soup.select("span.ad-targeting__segments")
+    for block in location_block:
+        text = block.get_text()
+        if "includes" in text:
+            data["targeting"]["location_includes"].append(text.replace("Targeting includes ", "").strip())
+        elif "excludes" in text:
+            data["targeting"]["location_excludes"].append(text.replace("Targeting excludes ", "").strip())
+
+    # Audience Targeting
+    audience = soup.select_one("h3:contains('Audience') + p")
+    if audience:
+        data["targeting"]["audience"] = audience.get_text(strip=True)
+
+    return data

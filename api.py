@@ -29,6 +29,7 @@ from scraper import (
     run_bulk_scraper,
     extract_internal_links_from_html,
     extract_linkedIn_ads_data,
+    extract_linkedIn_ad_detail,
 )
 
 load_dotenv()
@@ -48,6 +49,9 @@ class LinkedInRequest(BaseModel):
     account: str
     country: str
     date: str
+
+class AdDetailRequest(BaseModel):
+    ad_url: str  # The LinkedIn ad detail URL
 
 # ---------------------- API Endpoints ----------------------
 
@@ -180,3 +184,11 @@ def scrape_linkedin_ads(request: LinkedInRequest) :
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
     
+@app.post("/adDetails/")
+def get_ad_details(request: AdDetailRequest):
+    try:
+        html = fetch_html_selenium(request.ad_url)
+        data = extract_linkedIn_ad_detail(html)
+        return {"ad_detail": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error scraping ad details: {str(e)}")
