@@ -1,10 +1,19 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, create_model
 
-from typing import List, Optional
-from urllib.parse import urlencode
+from typing import List, Dict, Optional
+import os
+import re
+import time
+import random
+import json
+from datetime import datetime
+from urllib.parse import urlparse, urljoin, urlencode
 
+import pandas as pd
 from bs4 import BeautifulSoup
+import html2text
+import tiktoken
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -21,10 +30,10 @@ from scraper import (
     extract_internal_links_from_html,
     extract_linkedIn_ads_data,
 )
-from fastapi.concurrency import run_in_threadpool
+
+load_dotenv()
 
 app = FastAPI()
-
 
 # ---------------------- Pydantic Models ----------------------
 
@@ -40,8 +49,7 @@ class LinkedInRequest(BaseModel):
     country: str
     date: str
 
-
-# ---------------------- Async API Endpoints ----------------------
+# ---------------------- API Endpoints ----------------------
 
 @app.get("/")
 async def root():
@@ -49,15 +57,19 @@ async def root():
 
 
 @app.post("/scrapeSearch/")
-async def scrape_google_search(request: ScrapeRequest):
+def scrape_googleSearch(request: ScrapeRequest):
     try:
-        raw_html = await run_in_threadpool(fetch_html_selenium, request.url)
+        raw_html = fetch_html_selenium(request.url)
+        print("raw_html", raw_html)
         soup = BeautifulSoup(raw_html, 'html.parser')
 
+        # Set to avoid duplicates
         seen = set()
         results_list = []
 
+        # Find all result blocks
         results = soup.find_all('div', class_='CA5RN')
+        print("results", results)
 
         for item in results:
             title_tag = item.find('span', class_='VuuXrf')
@@ -66,65 +78,89 @@ async def scrape_google_search(request: ScrapeRequest):
             if title_tag and cite_tag:
                 title = title_tag.text.strip()
                 link = cite_tag.get_text(strip=True)
+
+                # Use a tuple to check for duplicates
                 if (title, link) not in seen:
                     seen.add((title, link))
-                    results_list.append({"title": title, "link": link})
+                    results_list.append({
+                        "title": title,
+                        "link": link
+                    })
 
-        return results_list
+        # Output JSON
+        json_output = json.dumps(results_list, indent=2, ensure_ascii=False)
+        print(json_output)
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"detail": str(e)}
 
 
 @app.post("/scrapeLinks/")
-async def scrape_links(request: ScrapeRequest):
+def scrape_links(request: ScrapeRequest):
+    """Scrape a URL and return structured data."""
     try:
-        raw_html = await run_in_threadpool(fetch_html_selenium, request.url)
-        internal_links = extract_internal_links_from_html(raw_html, request.url)
-        data = await run_in_threadpool(extract_links, internal_links, request.selected_model)
-        return {"urls": data}
+        url = request.url
+        raw_html = fetch_html_selenium(url)
+        internal_links = extract_internal_links_from_html(raw_html, url)
+    
+        data = extract_links(internal_links, request.selected_model)
+        
+        return  {"urls": data }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.post("/scrapeData/")
-async def scrape_data(request: ScrapeRequest):
+def scrape_data(request: ScrapeRequest):
+    """Scrape a URL and return structured data."""
     try:
-        raw_html = await run_in_threadpool(fetch_html_selenium, request.url)
-        data = extract_data(raw_html, {"type": "home", "url": request.url})
-        return {"data": data}
+        url = request.url
+        raw_html = fetch_html_selenium(url)
+
+        data = extract_data(raw_html, {"type": "home", "url": url})
+
+        return {
+            "data": data
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @app.post("/scrapeMultiple/")
-async def scrape_multiple_data(request: MultiScrapeRequest):
-    try:
-        return await run_in_threadpool(run_bulk_scraper, request.urls)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+def scrape_multiple_data(request: MultiScrapeRequest):  
+    urls = request.urls
+    return run_bulk_scraper(urls)
 
 @app.post("/scrapeAllData/")
-async def scrape_all_data(request: ScrapeRequest):
+def scrape_all_data(request: ScrapeRequest):
     try:
         results = []
 
-        raw_html = await run_in_threadpool(fetch_html_selenium, request.url)
-        base_data = extract_data(raw_html, {"type": "home", "url": request.url})
-        results.append({"url": request.url, "data": base_data})
+        url = request.url
+        raw_html = fetch_html_selenium(url)
+        base_data = extract_data(raw_html, {"type": "home", "url": url})
+        results.append({"url": url, "data": base_data})
 
-        internal_links = extract_internal_links_from_html(raw_html, request.url)
-        relevant_links = await run_in_threadpool(extract_links, list(internal_links), request.selected_model)
+        internal_links = extract_internal_links_from_html(raw_html, url)
+        print(f"🔗 Extracted internal links: {len(internal_links)}")
+
+        relevant_links = extract_links(list(internal_links), request.selected_model)
+        print(f"✅ Filtered relevant links: {len(relevant_links)}")
+
         internal_results = run_bulk_scraper(relevant_links)
         results.extend(internal_results["results"])
 
         return {"results": results}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/scrapeLinkedInAds/")
-async def scrape_linkedin_ads(request: LinkedInRequest):
+def scrape_linkedin_ads(request: LinkedInRequest) :
+    """Scrape LinkedIn ad library and return structured ad data."""
     try:
         base_url = 'https://www.linkedin.com/ad-library/search'
         params = {
@@ -134,9 +170,13 @@ async def scrape_linkedin_ads(request: LinkedInRequest):
         }
         url = f"{base_url}?{urlencode(params)}"
 
-        raw_html = await run_in_threadpool(fetch_html_selenium, url)
+        raw_html = fetch_html_selenium(url)  # assumes you have a Selenium scraper
         data = extract_linkedIn_ads_data(raw_html)
 
-        return {"linkedin_ads": data}
+        return {
+            "linkedin_ads": data
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
+    
