@@ -235,11 +235,11 @@ def extract_data(html_content, url_info):
     images = [{"src": img.get("src"), "alt": img.get("alt", "").strip()} for img in soup.find_all("img")]
 
     # === 🔹 CTA Detection
-    cta_texts = []
+    links_buttons = []
     for tag in soup.find_all(["a", "button"]):
         text = tag.get_text(strip=True).lower()
         if text:
-            cta_texts.append({
+            links_buttons.append({
                 "text": text,
                 "href": tag.get("href")
             })
@@ -283,7 +283,7 @@ def extract_data(html_content, url_info):
         "word_count": word_count,
         "internal_links": len(internal_links),
         "external_links": len(external_links),
-        "cta_texts": cta_texts,
+        "links & buttons": links_buttons,
         "images": images,
         "social_links": social_links,
         "has_tracking_scripts": has_tracking_scripts,
@@ -333,3 +333,34 @@ def run_bulk_scraper(typed_links: List[Dict[str, str]]):
         results.append(scrape_url(link))
 
     return {"results": results}
+
+
+def extract_linkedIn_ads_data(html_data):
+    soup = BeautifulSoup(html_data, "html.parser")
+    ads = []
+    
+    # Each ad is inside a <li> with class "search-result-item"
+    ad_items = soup.find_all("li", class_="search-result-item")
+    
+    for ad in ad_items:
+        ad_data = {}
+        
+        # Extract title (Company name)
+        title_tag = ad.find("div", class_="text-md")
+        ad_data["title"] = title_tag.get_text(strip=True) if title_tag else None
+
+        # Extract description
+        desc_tag = ad.find("p", class_="commentary__content")
+        ad_data["description"] = desc_tag.get_text(strip=True) if desc_tag else None
+
+        # Extract ad link (first <a> with href that starts with /ad-library/detail/)
+        link_tag = ad.find("a", href=lambda x: x and x.startswith("/ad-library/detail/"))
+        if link_tag:
+            ad_data["url"] = "https://www.linkedin.com" + link_tag["href"]
+        else:
+            ad_data["url"] = None
+        
+        ads.append(ad_data)
+    
+    return ads
+   
