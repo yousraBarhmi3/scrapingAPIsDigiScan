@@ -202,6 +202,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
 import re
 
+MAX_TEXT_BLOCKS = 15
 def extract_data(html_content, url_info):
     soup = BeautifulSoup(html_content, "lxml")
     url_type = url_info.get("type", "").lower()
@@ -261,13 +262,48 @@ def extract_data(html_content, url_info):
 
     # === 🧩 Contact Page Specifics
     contact_info = {}
+    thank_you_url = None
+    
+    # Keywords related to the thank-you page URL
+    thank_you_keywords = [
+        "thank-you", "thanks", "success", "confirmation", "received", 
+        "merci", "reussi", "confirmation", "reception", "remerciement", "reçu"
+    ]
+
     if url_type == "contact":
+        forms = soup.find_all("form")
+        has_form = bool(forms)
+        has_email = bool(re.search(r"\b[\w\.-]+@[\w\.-]+\.\w+\b", html_content))
+        has_phone = bool(re.search(r"\+?\d[\d\-\s\(\)]{6,}", html_content))
+        has_map = bool(soup.find("iframe", src=re.compile("google.com/maps")))
+        has_rgpd = bool(re.search(r"(rgpd|politique de confidentialité|données personnelles)", html_content, re.I))
+        
+        # Check thank-you URL in form action
+        for form in forms:
+            action = form.get("action", "")
+            if any(kw in action.lower() for kw in thank_you_keywords):
+                thank_you_url = urljoin(page_url, action)
+                break
+
+        # Check thank-you redirection via window.location in scripts
+        scripts_with_redirection = soup.find_all("script", string=True)
+        for script in scripts_with_redirection:
+            script_content = script.string or ""
+            # Match lines like: window.location = '/thank-you.html';
+            matches = re.findall(r"window\.location(?:\.href)?\s*=\s*['\"]([^'\"]+)['\"]", script_content, flags=re.IGNORECASE)
+            for potential_url in matches:
+                if any(kw in potential_url.lower() for kw in thank_you_keywords):
+                    thank_you_url = urljoin(page_url, potential_url)
+                    break
+            if thank_you_url:
+                break
         contact_info.update({
-            "has_form": bool(soup.find("form")),
-            "has_email": bool(re.search(r"\b[\w\.-]+@[\w\.-]+\.\w+\b", html_content)),
-            "has_phone": bool(re.search(r"\+?\d[\d\-\s\(\)]{6,}", html_content)),
-            "has_map": bool(soup.find("iframe", src=re.compile("google.com/maps"))),
-            "has_rgpd": bool(re.search(r"(rgpd|politique de confidentialité|données personnelles)", html_content, re.I))
+            "has_form": has_form,
+            "has_email": has_email,
+            "has_phone": has_phone,
+            "has_map": has_map,
+            "has_rgpd": has_rgpd,
+            "thank_you_url": thank_you_url
         })
 
     # === ✅ Final structured output
@@ -279,7 +315,7 @@ def extract_data(html_content, url_info):
         "meta_keywords": keywords,
         "lang": html_lang,
         "headings": headings,
-        "text_blocks": text_blocks[:15],
+        "text_blocks": text_blocks[:MAX_TEXT_BLOCKS],
         "word_count": word_count,
         "internal_links": len(internal_links),
         "external_links": len(external_links),
