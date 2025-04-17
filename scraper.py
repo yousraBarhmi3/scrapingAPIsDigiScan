@@ -123,25 +123,14 @@ def parse_response(content):
             return parsed
         else:
             raise ValueError("Parsed content is not a list of {type, url} objects.")
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        print(f"JSON Decode Error: {e}")
+        print(f"Response content: {content}")
         raise ValueError("Model response is not valid JSON.")
 
 
 def extract_links(links: List[str], selected_model: str) -> List[Dict[str, str]]:
     user_prompt = f"{USER_MESSAGE} {json.dumps(links, ensure_ascii=False)}"
-
-    def parse_response(content):
-        try:
-            parsed = json.loads(content)
-            if isinstance(parsed, list) and all(
-                isinstance(item, dict) and "type" in item and "url" in item
-                for item in parsed
-            ):
-                return parsed
-            else:
-                raise ValueError("Parsed content is not a list of {type, url} objects.")
-        except json.JSONDecodeError:
-            raise ValueError("Model response is not valid JSON.")
 
     if selected_model in ["gpt-4o-mini", "gpt-4o-2024-08-06"]:
         client = OpenAI(api_key=get_api_key("OPENAI_API_KEY"))
@@ -153,6 +142,8 @@ def extract_links(links: List[str], selected_model: str) -> List[Dict[str, str]]
             ]
         )
         content = response.choices[0].message.content
+        
+        print("Raw response from the model:", content)  # Print the raw response
         return parse_response(content)
 
     elif selected_model == "gemini-1.5-flash":
@@ -176,6 +167,8 @@ def extract_links(links: List[str], selected_model: str) -> List[Dict[str, str]]
         )
         response = model.generate_content(f"{LINKS_MESSAGE}\n{USER_MESSAGE} {json.dumps(links)}")
         content = response.candidates[0].content.parts[0].text
+        
+        print("Raw response from the model:", content)  # Print the raw response
         return parse_response(content)
 
     elif selected_model == "Groq Llama3.1 70b":
@@ -188,19 +181,12 @@ def extract_links(links: List[str], selected_model: str) -> List[Dict[str, str]]
             ]
         )
         content = response.choices[0].message.content
+            
+        print("Raw response from the model:", content)  # Print the raw response
         return parse_response(content)
 
     else:
         raise ValueError(f"Unsupported model: {selected_model}")
-
-   
-from bs4 import BeautifulSoup
-from urllib.parse import urlparse, urljoin
-import re
-
-from bs4 import BeautifulSoup
-from urllib.parse import urlparse, urljoin
-import re
 
 MAX_TEXT_BLOCKS = 15
 def extract_data(html_content, url_info):
@@ -220,7 +206,10 @@ def extract_data(html_content, url_info):
     headings = {
         "h1": [h.get_text(strip=True) for h in soup.find_all("h1")],
         "h2": [h.get_text(strip=True) for h in soup.find_all("h2")],
-        "h3": [h.get_text(strip=True) for h in soup.find_all("h3")]
+        "h3": [h.get_text(strip=True) for h in soup.find_all("h3")],
+        "h4": [h.get_text(strip=True) for h in soup.find_all("h4")],
+        "h5": [h.get_text(strip=True) for h in soup.find_all("h5")],
+        "h6": [h.get_text(strip=True) for h in soup.find_all("h6")]
     }
     text_elements = soup.find_all(["p", "li"])
     text_blocks = [t.get_text(strip=True) for t in text_elements if t.get_text(strip=True)]
